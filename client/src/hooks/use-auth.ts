@@ -30,35 +30,73 @@ export function useAuth() {
               loading: false,
             });
           } else {
-            // Fallback: Create mock user based on email
+            // Create user in backend if doesn't exist
             let role: "admin" | "doctor" | "staff" = "admin";
             let name = firebaseUser.displayName || "User";
             
             if (firebaseUser.email?.includes("dr.")) {
               role = "doctor";
-              name = firebaseUser.email.includes("smith") ? "Dr. Smith" : "Dr. Johnson";
+              name = firebaseUser.email.includes("smith") ? "Dr. Smith" : 
+                    firebaseUser.email.includes("johnson") ? "Dr. Johnson" : "Dr. User";
             } else if (firebaseUser.email?.includes("staff")) {
               role = "staff";
               name = "Staff Member";
             }
             
-            const mockUser: User = {
-              id: "user-1",
+            const newUserData = {
               firebaseUid: firebaseUser.uid,
               email: firebaseUser.email || "",
-              emailLower: (firebaseUser.email || "").toLowerCase(),
               name,
               role,
               specialization: role === "doctor" ? "General Dentistry" : undefined,
               isActive: true,
-              createdAt: new Date(),
             };
-            
-            setAuthState({
-              user: mockUser,
-              firebaseUser,
-              loading: false,
-            });
+
+            try {
+              const createResponse = await fetch('/api/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newUserData),
+              });
+              
+              if (createResponse.ok) {
+                const createdUser = await createResponse.json();
+                setAuthState({
+                  user: createdUser,
+                  firebaseUser,
+                  loading: false,
+                });
+              } else {
+                // Final fallback
+                const mockUser: User = {
+                  id: "temp-user",
+                  ...newUserData,
+                  emailLower: (firebaseUser.email || "").toLowerCase(),
+                  createdAt: new Date(),
+                };
+                
+                setAuthState({
+                  user: mockUser,
+                  firebaseUser,
+                  loading: false,
+                });
+              }
+            } catch (createError) {
+              console.error("Error creating user:", createError);
+              // Final fallback
+              const mockUser: User = {
+                id: "temp-user",
+                ...newUserData,
+                emailLower: (firebaseUser.email || "").toLowerCase(),
+                createdAt: new Date(),
+              };
+              
+              setAuthState({
+                user: mockUser,
+                firebaseUser,
+                loading: false,
+              });
+            }
           }
         } catch (error) {
           console.error("Error fetching user data:", error);
