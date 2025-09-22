@@ -25,9 +25,10 @@ export function useAuth() {
           id: "user-1",
           firebaseUid: firebaseUser.uid,
           email: firebaseUser.email || "",
+          emailLower: (firebaseUser.email || "").toLowerCase(),
           name: firebaseUser.displayName || "User",
           role: "admin",
-          specialization: null,
+          specialization: undefined,
           isActive: true,
           createdAt: new Date(),
         };

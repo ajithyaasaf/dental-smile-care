@@ -45,7 +45,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userData = insertUserSchema.parse(req.body);
       const user = await storage.createUser(userData);
       await storage.createAuditLog({
-        userId: req.user.id,
+        userId: req.user!.id,
         action: 'create',
         entityType: 'user',
         entityId: user.id,
@@ -91,7 +91,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const patientData = insertPatientSchema.parse(req.body);
       const patient = await storage.createPatient(patientData);
       await storage.createAuditLog({
-        userId: req.user.id,
+        userId: req.user!.id,
         action: 'create',
         entityType: 'patient',
         entityId: patient.id,
@@ -115,7 +115,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Patient not found" });
       }
       await storage.createAuditLog({
-        userId: req.user.id,
+        userId: req.user!.id,
         action: 'update',
         entityType: 'patient',
         entityId: patient.id,
@@ -165,7 +165,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const appointmentData = insertAppointmentSchema.parse(req.body);
       const appointment = await storage.createAppointment(appointmentData);
       await storage.createAuditLog({
-        userId: req.user.id,
+        userId: req.user!.id,
         action: 'create',
         entityType: 'appointment',
         entityId: appointment.id,
@@ -189,7 +189,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Appointment not found" });
       }
       await storage.createAuditLog({
-        userId: req.user.id,
+        userId: req.user!.id,
         action: 'update',
         entityType: 'appointment',
         entityId: appointment.id,
@@ -216,7 +216,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const encounterData = insertEncounterSchema.parse(req.body);
       const encounter = await storage.createEncounter(encounterData);
       await storage.createAuditLog({
-        userId: req.user.id,
+        userId: req.user!.id,
         action: 'create',
         entityType: 'encounter',
         entityId: encounter.id,
@@ -264,7 +264,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const prescriptionData = insertPrescriptionSchema.parse(req.body);
       const prescription = await storage.createPrescription(prescriptionData);
       await storage.createAuditLog({
-        userId: req.user.id,
+        userId: req.user!.id,
         action: 'create',
         entityType: 'prescription',
         entityId: prescription.id,
@@ -288,7 +288,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Prescription not found" });
       }
       await storage.createAuditLog({
-        userId: req.user.id,
+        userId: req.user!.id,
         action: 'update',
         entityType: 'prescription',
         entityId: prescription.id,

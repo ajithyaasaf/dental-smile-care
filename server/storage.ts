@@ -12,7 +12,8 @@ import {
   type AuditLog,
   type InsertAuditLog
 } from "@shared/schema";
-import { randomUUID } from "crypto";
+import { db } from "./firebaseAdmin";
+import { Timestamp } from "firebase-admin/firestore";
 
 export interface IStorage {
   // Users
@@ -55,278 +56,454 @@ export interface IStorage {
   getAuditLogs(): Promise<AuditLog[]>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User> = new Map();
-  private patients: Map<string, Patient> = new Map();
-  private appointments: Map<string, Appointment> = new Map();
-  private encounters: Map<string, Encounter> = new Map();
-  private prescriptions: Map<string, Prescription> = new Map();
-  private auditLogs: Map<string, AuditLog> = new Map();
+export class FirestoreStorage implements IStorage {
+  private usersCollection = db.collection('users');
+  private patientsCollection = db.collection('patients');
+  private appointmentsCollection = db.collection('appointments');
+  private encountersCollection = db.collection('encounters');
+  private prescriptionsCollection = db.collection('prescriptions');
+  private auditLogsCollection = db.collection('audit_logs');
 
   constructor() {
-    // Initialize with sample data
-    this.initializeSampleData();
+    // Firestore collections are automatically created when first document is added
   }
 
-  private initializeSampleData() {
-    // Sample admin user
-    const adminUser: User = {
-      id: randomUUID(),
-      firebaseUid: "admin-firebase-uid",
-      email: "admin@smilecare.com",
-      name: "Dr. Admin User",
-      role: "admin",
-      specialization: null,
-      isActive: true,
-      createdAt: new Date(),
-    };
-    this.users.set(adminUser.id, adminUser);
+  private convertTimestamp(timestamp: any): Date {
+    if (timestamp && timestamp.toDate) {
+      return timestamp.toDate();
+    }
+    return timestamp instanceof Date ? timestamp : new Date(timestamp);
+  }
 
-    // Sample doctors
-    const doctor1: User = {
-      id: randomUUID(),
-      firebaseUid: "doctor1-firebase-uid",
-      email: "dr.smith@smilecare.com",
-      name: "Dr. Smith",
-      role: "doctor",
-      specialization: "General Dentistry",
-      isActive: true,
-      createdAt: new Date(),
-    };
-    this.users.set(doctor1.id, doctor1);
+  private convertToFirestoreData(data: any): any {
+    const converted = { ...data };
+    if (converted.createdAt instanceof Date) {
+      converted.createdAt = Timestamp.fromDate(converted.createdAt);
+    }
+    if (converted.scheduledAt instanceof Date) {
+      converted.scheduledAt = Timestamp.fromDate(converted.scheduledAt);
+    }
+    if (converted.dateOfBirth instanceof Date) {
+      converted.dateOfBirth = Timestamp.fromDate(converted.dateOfBirth);
+    }
+    return converted;
+  }
 
-    const doctor2: User = {
-      id: randomUUID(),
-      firebaseUid: "doctor2-firebase-uid",
-      email: "dr.johnson@smilecare.com",
-      name: "Dr. Johnson",
-      role: "doctor",
-      specialization: "Oral Surgery",
-      isActive: true,
-      createdAt: new Date(),
-    };
-    this.users.set(doctor2.id, doctor2);
+  private convertFromFirestoreData(data: any): any {
+    if (!data) return null;
+    const converted = { ...data };
+    if (converted.createdAt) {
+      converted.createdAt = this.convertTimestamp(converted.createdAt);
+    }
+    if (converted.scheduledAt) {
+      converted.scheduledAt = this.convertTimestamp(converted.scheduledAt);
+    }
+    if (converted.dateOfBirth) {
+      converted.dateOfBirth = this.convertTimestamp(converted.dateOfBirth);
+    }
+    return converted;
+  }
+
+  async initializeSampleData() {
+    // Check if admin user already exists
+    const existingAdmin = await this.usersCollection.where('email', '==', 'admin@smilecare.com').get();
+    
+    if (existingAdmin.empty) {
+      // Sample admin user
+      const adminData = {
+        firebaseUid: "admin-firebase-uid",
+        email: "admin@smilecare.com",
+        emailLower: "admin@smilecare.com",
+        name: "Dr. Admin User",
+        role: "admin" as const,
+        isActive: true,
+        createdAt: Timestamp.now(),
+      };
+      const adminRef = await this.usersCollection.add(adminData);
+      
+      // Sample doctors
+      const doctor1Data = {
+        firebaseUid: "doctor1-firebase-uid",
+        email: "dr.smith@smilecare.com",
+        emailLower: "dr.smith@smilecare.com",
+        name: "Dr. Smith",
+        role: "doctor" as const,
+        specialization: "General Dentistry",
+        isActive: true,
+        createdAt: Timestamp.now(),
+      };
+      await this.usersCollection.add(doctor1Data);
+
+      const doctor2Data = {
+        firebaseUid: "doctor2-firebase-uid",
+        email: "dr.johnson@smilecare.com",
+        emailLower: "dr.johnson@smilecare.com",
+        name: "Dr. Johnson",
+        role: "doctor" as const,
+        specialization: "Oral Surgery",
+        isActive: true,
+        createdAt: Timestamp.now(),
+      };
+      await this.usersCollection.add(doctor2Data);
+    }
   }
 
   // Users
   async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+    const doc = await this.usersCollection.doc(id).get();
+    if (!doc.exists) return undefined;
+    const data = this.convertFromFirestoreData(doc.data());
+    return { id: doc.id, ...data } as User;
   }
 
   async getUserByFirebaseUid(firebaseUid: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(user => user.firebaseUid === firebaseUid);
+    const snapshot = await this.usersCollection.where('firebaseUid', '==', firebaseUid).get();
+    if (snapshot.empty) return undefined;
+    const doc = snapshot.docs[0];
+    const data = this.convertFromFirestoreData(doc.data());
+    return { id: doc.id, ...data } as User;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { 
-      ...insertUser, 
-      id, 
-      specialization: insertUser.specialization || null,
+    const userData = {
+      ...insertUser,
+      emailLower: insertUser.email.toLowerCase(),
       isActive: insertUser.isActive ?? true,
-      createdAt: new Date() 
+      createdAt: Timestamp.now(),
     };
-    this.users.set(id, user);
-    return user;
+    
+    const firestoreData = this.convertToFirestoreData(userData);
+    const docRef = await this.usersCollection.add(firestoreData);
+    
+    return {
+      id: docRef.id,
+      ...this.convertFromFirestoreData(userData)
+    } as User;
   }
 
   async updateUser(id: string, updates: Partial<User>): Promise<User | undefined> {
-    const user = this.users.get(id);
-    if (!user) return undefined;
-    const updatedUser = { ...user, ...updates };
-    this.users.set(id, updatedUser);
-    return updatedUser;
+    const docRef = this.usersCollection.doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists) return undefined;
+    
+    const updateData = this.convertToFirestoreData(updates);
+    if (updates.email) {
+      updateData.emailLower = updates.email.toLowerCase();
+    }
+    
+    await docRef.update(updateData);
+    
+    const updatedDoc = await docRef.get();
+    const data = this.convertFromFirestoreData(updatedDoc.data());
+    return { id: updatedDoc.id, ...data } as User;
   }
 
   async getUsers(): Promise<User[]> {
-    return Array.from(this.users.values());
+    const snapshot = await this.usersCollection.orderBy('createdAt', 'desc').get();
+    return snapshot.docs.map(doc => {
+      const data = this.convertFromFirestoreData(doc.data());
+      return { id: doc.id, ...data } as User;
+    });
   }
 
   // Patients
   async getPatient(id: string): Promise<Patient | undefined> {
-    return this.patients.get(id);
+    const doc = await this.patientsCollection.doc(id).get();
+    if (!doc.exists) return undefined;
+    const data = this.convertFromFirestoreData(doc.data());
+    return { id: doc.id, ...data } as Patient;
   }
 
   async createPatient(insertPatient: InsertPatient): Promise<Patient> {
-    const id = randomUUID();
-    const patient: Patient = { 
-      ...insertPatient, 
-      id, 
-      email: insertPatient.email || null,
-      address: insertPatient.address || null,
-      gender: insertPatient.gender || null,
-      emergencyContact: insertPatient.emergencyContact || null,
-      medicalHistory: insertPatient.medicalHistory || null,
-      allergies: insertPatient.allergies || null,
-      profilePhotoUrl: insertPatient.profilePhotoUrl || null,
-      communicationPreferences: insertPatient.communicationPreferences || null,
-      createdAt: new Date() 
+    const fullName = `${insertPatient.firstName} ${insertPatient.lastName}`;
+    const patientData = {
+      ...insertPatient,
+      fullName,
+      fullNameLower: fullName.toLowerCase(),
+      emailLower: insertPatient.email?.toLowerCase(),
+      createdAt: Timestamp.now(),
     };
-    this.patients.set(id, patient);
-    return patient;
+    
+    const firestoreData = this.convertToFirestoreData(patientData);
+    const docRef = await this.patientsCollection.add(firestoreData);
+    
+    return {
+      id: docRef.id,
+      ...this.convertFromFirestoreData(patientData)
+    } as Patient;
   }
 
   async updatePatient(id: string, updates: Partial<Patient>): Promise<Patient | undefined> {
-    const patient = this.patients.get(id);
-    if (!patient) return undefined;
-    const updatedPatient = { ...patient, ...updates };
-    this.patients.set(id, updatedPatient);
-    return updatedPatient;
+    const docRef = this.patientsCollection.doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists) return undefined;
+    
+    const updateData = this.convertToFirestoreData(updates);
+    
+    // Update computed fields if name or email changed
+    if (updates.firstName || updates.lastName) {
+      const currentData = doc.data();
+      const firstName = updates.firstName || currentData?.firstName;
+      const lastName = updates.lastName || currentData?.lastName;
+      const fullName = `${firstName} ${lastName}`;
+      updateData.fullName = fullName;
+      updateData.fullNameLower = fullName.toLowerCase();
+    }
+    
+    if (updates.email) {
+      updateData.emailLower = updates.email.toLowerCase();
+    }
+    
+    await docRef.update(updateData);
+    
+    const updatedDoc = await docRef.get();
+    const data = this.convertFromFirestoreData(updatedDoc.data());
+    return { id: updatedDoc.id, ...data } as Patient;
   }
 
   async getPatients(): Promise<Patient[]> {
-    return Array.from(this.patients.values());
+    const snapshot = await this.patientsCollection.orderBy('createdAt', 'desc').get();
+    return snapshot.docs.map(doc => {
+      const data = this.convertFromFirestoreData(doc.data());
+      return { id: doc.id, ...data } as Patient;
+    });
   }
 
   async searchPatients(query: string): Promise<Patient[]> {
     const lowercaseQuery = query.toLowerCase();
-    return Array.from(this.patients.values()).filter(patient =>
-      patient.firstName.toLowerCase().includes(lowercaseQuery) ||
-      patient.lastName.toLowerCase().includes(lowercaseQuery) ||
-      patient.phone.includes(query) ||
-      (patient.email && patient.email.toLowerCase().includes(lowercaseQuery))
-    );
+    
+    // Firestore prefix search for names
+    const nameSnapshot = await this.patientsCollection
+      .where('fullNameLower', '>=', lowercaseQuery)
+      .where('fullNameLower', '<=', lowercaseQuery + '\uf8ff')
+      .get();
+    
+    // Phone search (exact match)
+    const phoneSnapshot = await this.patientsCollection
+      .where('phone', '==', query)
+      .get();
+    
+    // Combine results and deduplicate
+    const results = new Map<string, Patient>();
+    
+    [...nameSnapshot.docs, ...phoneSnapshot.docs].forEach(doc => {
+      const data = this.convertFromFirestoreData(doc.data());
+      results.set(doc.id, { id: doc.id, ...data } as Patient);
+    });
+    
+    return Array.from(results.values());
   }
 
   // Appointments
   async getAppointment(id: string): Promise<Appointment | undefined> {
-    return this.appointments.get(id);
+    const doc = await this.appointmentsCollection.doc(id).get();
+    if (!doc.exists) return undefined;
+    const data = this.convertFromFirestoreData(doc.data());
+    return { id: doc.id, ...data } as Appointment;
   }
 
   async createAppointment(insertAppointment: InsertAppointment): Promise<Appointment> {
-    const id = randomUUID();
-    const appointment: Appointment = { 
-      ...insertAppointment, 
-      id, 
-      duration: insertAppointment.duration || null,
-      status: insertAppointment.status || null,
-      notes: insertAppointment.notes || null,
-      createdAt: new Date() 
+    const scheduledDate = new Date(insertAppointment.scheduledAt).toISOString().split('T')[0];
+    
+    const appointmentData = {
+      ...insertAppointment,
+      scheduledDate,
+      duration: insertAppointment.duration ?? 30,
+      status: insertAppointment.status ?? "scheduled",
+      createdAt: Timestamp.now(),
     };
-    this.appointments.set(id, appointment);
-    return appointment;
+    
+    const firestoreData = this.convertToFirestoreData(appointmentData);
+    const docRef = await this.appointmentsCollection.add(firestoreData);
+    
+    return {
+      id: docRef.id,
+      ...this.convertFromFirestoreData(appointmentData)
+    } as Appointment;
   }
 
   async updateAppointment(id: string, updates: Partial<Appointment>): Promise<Appointment | undefined> {
-    const appointment = this.appointments.get(id);
-    if (!appointment) return undefined;
-    const updatedAppointment = { ...appointment, ...updates };
-    this.appointments.set(id, updatedAppointment);
-    return updatedAppointment;
+    const docRef = this.appointmentsCollection.doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists) return undefined;
+    
+    const updateData = this.convertToFirestoreData(updates);
+    
+    if (updates.scheduledAt) {
+      updateData.scheduledDate = new Date(updates.scheduledAt).toISOString().split('T')[0];
+    }
+    
+    await docRef.update(updateData);
+    
+    const updatedDoc = await docRef.get();
+    const data = this.convertFromFirestoreData(updatedDoc.data());
+    return { id: updatedDoc.id, ...data } as Appointment;
   }
 
   async getAppointments(): Promise<Appointment[]> {
-    return Array.from(this.appointments.values());
+    const snapshot = await this.appointmentsCollection.orderBy('scheduledAt', 'desc').get();
+    return snapshot.docs.map(doc => {
+      const data = this.convertFromFirestoreData(doc.data());
+      return { id: doc.id, ...data } as Appointment;
+    });
   }
 
   async getAppointmentsByDate(date: string): Promise<Appointment[]> {
-    const targetDate = new Date(date);
-    return Array.from(this.appointments.values()).filter(appointment => {
-      const appointmentDate = new Date(appointment.scheduledAt);
-      return appointmentDate.toDateString() === targetDate.toDateString();
+    const snapshot = await this.appointmentsCollection
+      .where('scheduledDate', '==', date)
+      .orderBy('scheduledAt', 'asc')
+      .get();
+    
+    return snapshot.docs.map(doc => {
+      const data = this.convertFromFirestoreData(doc.data());
+      return { id: doc.id, ...data } as Appointment;
     });
   }
 
   async getAppointmentsByDoctor(doctorId: string): Promise<Appointment[]> {
-    return Array.from(this.appointments.values()).filter(appointment => 
-      appointment.doctorId === doctorId
-    );
+    const snapshot = await this.appointmentsCollection
+      .where('doctorId', '==', doctorId)
+      .orderBy('scheduledAt', 'asc')
+      .get();
+    
+    return snapshot.docs.map(doc => {
+      const data = this.convertFromFirestoreData(doc.data());
+      return { id: doc.id, ...data } as Appointment;
+    });
   }
 
   // Encounters
   async getEncounter(id: string): Promise<Encounter | undefined> {
-    return this.encounters.get(id);
+    const doc = await this.encountersCollection.doc(id).get();
+    if (!doc.exists) return undefined;
+    const data = this.convertFromFirestoreData(doc.data());
+    return { id: doc.id, ...data } as Encounter;
   }
 
   async createEncounter(insertEncounter: InsertEncounter): Promise<Encounter> {
-    const id = randomUUID();
-    const encounter: Encounter = { 
-      ...insertEncounter, 
-      id, 
-      chiefComplaint: insertEncounter.chiefComplaint || null,
-      clinicalNotes: insertEncounter.clinicalNotes || null,
-      diagnosis: insertEncounter.diagnosis || null,
-      treatmentPlan: insertEncounter.treatmentPlan || null,
-      uploadedFiles: insertEncounter.uploadedFiles || null,
-      vitals: insertEncounter.vitals || null,
-      createdAt: new Date() 
+    const encounterData = {
+      ...insertEncounter,
+      createdAt: Timestamp.now(),
     };
-    this.encounters.set(id, encounter);
-    return encounter;
+    
+    const firestoreData = this.convertToFirestoreData(encounterData);
+    const docRef = await this.encountersCollection.add(firestoreData);
+    
+    return {
+      id: docRef.id,
+      ...this.convertFromFirestoreData(encounterData)
+    } as Encounter;
   }
 
   async updateEncounter(id: string, updates: Partial<Encounter>): Promise<Encounter | undefined> {
-    const encounter = this.encounters.get(id);
-    if (!encounter) return undefined;
-    const updatedEncounter = { ...encounter, ...updates };
-    this.encounters.set(id, updatedEncounter);
-    return updatedEncounter;
+    const docRef = this.encountersCollection.doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists) return undefined;
+    
+    const updateData = this.convertToFirestoreData(updates);
+    await docRef.update(updateData);
+    
+    const updatedDoc = await docRef.get();
+    const data = this.convertFromFirestoreData(updatedDoc.data());
+    return { id: updatedDoc.id, ...data } as Encounter;
   }
 
   async getEncountersByPatient(patientId: string): Promise<Encounter[]> {
-    return Array.from(this.encounters.values()).filter(encounter => 
-      encounter.patientId === patientId
-    );
+    const snapshot = await this.encountersCollection
+      .where('patientId', '==', patientId)
+      .orderBy('createdAt', 'desc')
+      .get();
+    
+    return snapshot.docs.map(doc => {
+      const data = this.convertFromFirestoreData(doc.data());
+      return { id: doc.id, ...data } as Encounter;
+    });
   }
 
   // Prescriptions
   async getPrescription(id: string): Promise<Prescription | undefined> {
-    return this.prescriptions.get(id);
+    const doc = await this.prescriptionsCollection.doc(id).get();
+    if (!doc.exists) return undefined;
+    const data = this.convertFromFirestoreData(doc.data());
+    return { id: doc.id, ...data } as Prescription;
   }
 
   async createPrescription(insertPrescription: InsertPrescription): Promise<Prescription> {
-    const id = randomUUID();
-    const prescription: Prescription = { 
-      ...insertPrescription, 
-      id, 
-      medications: insertPrescription.medications || null,
-      pdfUrl: insertPrescription.pdfUrl || null,
-      emailSent: insertPrescription.emailSent || null,
-      whatsappSent: insertPrescription.whatsappSent || null,
-      createdAt: new Date() 
+    const prescriptionData = {
+      ...insertPrescription,
+      emailSent: insertPrescription.emailSent ?? false,
+      whatsappSent: insertPrescription.whatsappSent ?? false,
+      createdAt: Timestamp.now(),
     };
-    this.prescriptions.set(id, prescription);
-    return prescription;
+    
+    const firestoreData = this.convertToFirestoreData(prescriptionData);
+    const docRef = await this.prescriptionsCollection.add(firestoreData);
+    
+    return {
+      id: docRef.id,
+      ...this.convertFromFirestoreData(prescriptionData)
+    } as Prescription;
   }
 
   async updatePrescription(id: string, updates: Partial<Prescription>): Promise<Prescription | undefined> {
-    const prescription = this.prescriptions.get(id);
-    if (!prescription) return undefined;
-    const updatedPrescription = { ...prescription, ...updates };
-    this.prescriptions.set(id, updatedPrescription);
-    return updatedPrescription;
+    const docRef = this.prescriptionsCollection.doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists) return undefined;
+    
+    const updateData = this.convertToFirestoreData(updates);
+    await docRef.update(updateData);
+    
+    const updatedDoc = await docRef.get();
+    const data = this.convertFromFirestoreData(updatedDoc.data());
+    return { id: updatedDoc.id, ...data } as Prescription;
   }
 
   async getPrescriptions(): Promise<Prescription[]> {
-    return Array.from(this.prescriptions.values());
+    const snapshot = await this.prescriptionsCollection.orderBy('createdAt', 'desc').get();
+    return snapshot.docs.map(doc => {
+      const data = this.convertFromFirestoreData(doc.data());
+      return { id: doc.id, ...data } as Prescription;
+    });
   }
 
   async getPrescriptionsByPatient(patientId: string): Promise<Prescription[]> {
-    return Array.from(this.prescriptions.values()).filter(prescription => 
-      prescription.patientId === patientId
-    );
+    const snapshot = await this.prescriptionsCollection
+      .where('patientId', '==', patientId)
+      .orderBy('createdAt', 'desc')
+      .get();
+    
+    return snapshot.docs.map(doc => {
+      const data = this.convertFromFirestoreData(doc.data());
+      return { id: doc.id, ...data } as Prescription;
+    });
   }
 
   // Audit Logs
   async createAuditLog(insertLog: InsertAuditLog): Promise<AuditLog> {
-    const id = randomUUID();
-    const log: AuditLog = { 
-      ...insertLog, 
-      id, 
-      changes: insertLog.changes || null,
-      createdAt: new Date() 
+    const logData = {
+      ...insertLog,
+      createdAt: Timestamp.now(),
     };
-    this.auditLogs.set(id, log);
-    return log;
+    
+    const firestoreData = this.convertToFirestoreData(logData);
+    const docRef = await this.auditLogsCollection.add(firestoreData);
+    
+    return {
+      id: docRef.id,
+      ...this.convertFromFirestoreData(logData)
+    } as AuditLog;
   }
 
   async getAuditLogs(): Promise<AuditLog[]> {
-    return Array.from(this.auditLogs.values()).sort((a, b) => {
-      const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return dateB - dateA;
+    const snapshot = await this.auditLogsCollection.orderBy('createdAt', 'desc').get();
+    return snapshot.docs.map(doc => {
+      const data = this.convertFromFirestoreData(doc.data());
+      return { id: doc.id, ...data } as AuditLog;
     });
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new FirestoreStorage();
+
+// Initialize sample data on startup
+storage.initializeSampleData().catch(console.error);
