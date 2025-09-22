@@ -55,7 +55,56 @@ export const patientSchema = z.object({
   createdAt: z.date(),
 });
 
-// Firestore Appointments Collection Schema
+// Firestore Doctor Availability Collection Schema
+export const timeSlotSchema = z.object({
+  start: z.string(), // HH:mm format (e.g., "09:00")
+  end: z.string(), // HH:mm format (e.g., "17:00")
+});
+
+export const doctorAvailabilitySchema = z.object({
+  id: z.string(),
+  doctorId: z.string(),
+  dayOfWeek: z.number().min(0).max(6), // 0 = Sunday, 6 = Saturday
+  timeSlots: z.array(timeSlotSchema),
+  isActive: z.boolean().default(true),
+  effectiveFrom: z.date(),
+  effectiveTo: z.date().optional(), // null means indefinite
+  createdAt: z.date(),
+});
+
+export const doctorTimeOffSchema = z.object({
+  id: z.string(),
+  doctorId: z.string(),
+  startDate: z.date(),
+  endDate: z.date(),
+  startTime: z.string().optional(), // HH:mm format for partial day off
+  endTime: z.string().optional(), // HH:mm format for partial day off
+  reason: z.string().optional(),
+  isRecurring: z.boolean().default(false),
+  recurringPattern: z.enum(["weekly", "monthly", "yearly"]).optional(),
+  createdAt: z.date(),
+});
+
+// Enhanced appointment types for better categorization and color coding
+export const appointmentTypeSchema = z.enum([
+  "consultation", 
+  "cleaning", 
+  "checkup", 
+  "surgery", 
+  "emergency", 
+  "followup", 
+  "routine", 
+  "orthodontics", 
+  "cosmetic", 
+  "extraction", 
+  "root_canal", 
+  "filling"
+]);
+
+// Appointment priority for scheduling conflicts
+export const appointmentPrioritySchema = z.enum(["low", "normal", "high", "urgent"]);
+
+// Firestore Appointments Collection Schema (Enhanced)
 export const appointmentSchema = z.object({
   id: z.string(),
   patientId: z.string(),
@@ -63,13 +112,30 @@ export const appointmentSchema = z.object({
   scheduledAt: z.date(),
   scheduledDate: z.string(), // YYYY-MM-DD for easier querying
   duration: z.number().default(30), // minutes
-  appointmentType: z.enum(["routine", "emergency", "followup"]),
-  status: z.enum(["scheduled", "in_progress", "completed", "cancelled"]).default("scheduled"),
+  appointmentType: appointmentTypeSchema,
+  priority: appointmentPrioritySchema.default("normal"),
+  status: z.enum(["scheduled", "confirmed", "in_progress", "completed", "cancelled", "no_show"]).default("scheduled"),
   notes: z.string().optional(),
-  // Denormalized fields for list views
+  reminderSent: z.boolean().default(false),
+  confirmationRequired: z.boolean().default(false),
+  isRecurring: z.boolean().default(false),
+  recurringPattern: z.enum(["weekly", "monthly"]).optional(),
+  parentAppointmentId: z.string().optional(), // For recurring appointments
+  // Denormalized fields for list views and conflict detection
   patientName: z.string().optional(),
   doctorName: z.string().optional(),
+  endTime: z.date().optional(), // Computed: scheduledAt + duration
+  // Conflict detection fields
+  hasConflict: z.boolean().default(false),
+  conflictReason: z.string().optional(),
+  suggestedAlternatives: z.array(z.object({
+    doctorId: z.string(),
+    doctorName: z.string(),
+    suggestedTime: z.date(),
+    reason: z.string(),
+  })).optional(),
   createdAt: z.date(),
+  updatedAt: z.date().optional(),
 });
 
 // Firestore Encounters Collection Schema
@@ -162,12 +228,27 @@ export const insertPatientSchema = patientSchema.omit({
   emailLower: true, // Auto-generated from email if provided
 });
 
+export const insertDoctorAvailabilitySchema = doctorAvailabilitySchema.omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertDoctorTimeOffSchema = doctorTimeOffSchema.omit({
+  id: true,
+  createdAt: true,
+});
+
 export const insertAppointmentSchema = appointmentSchema.omit({
   id: true,
   createdAt: true,
+  updatedAt: true,
   scheduledDate: true, // Auto-generated from scheduledAt
   patientName: true, // Auto-denormalized
   doctorName: true, // Auto-denormalized
+  endTime: true, // Auto-computed
+  hasConflict: true, // Auto-computed
+  conflictReason: true, // Auto-computed
+  suggestedAlternatives: true, // Auto-computed
 });
 
 export const insertEncounterSchema = encounterSchema.omit({
@@ -196,6 +277,10 @@ export type Patient = z.infer<typeof patientSchema>;
 export type InsertPatient = z.infer<typeof insertPatientSchema>;
 export type Appointment = z.infer<typeof appointmentSchema>;
 export type InsertAppointment = z.infer<typeof insertAppointmentSchema>;
+export type DoctorAvailability = z.infer<typeof doctorAvailabilitySchema>;
+export type InsertDoctorAvailability = z.infer<typeof insertDoctorAvailabilitySchema>;
+export type DoctorTimeOff = z.infer<typeof doctorTimeOffSchema>;
+export type InsertDoctorTimeOff = z.infer<typeof insertDoctorTimeOffSchema>;
 export type Encounter = z.infer<typeof encounterSchema>;
 export type InsertEncounter = z.infer<typeof insertEncounterSchema>;
 export type Prescription = z.infer<typeof prescriptionSchema>;
@@ -211,3 +296,64 @@ export type CommunicationPreferences = z.infer<typeof communicationPreferencesSc
 export type ConsentForms = z.infer<typeof consentFormsSchema>;
 export type Medication = z.infer<typeof medicationSchema>;
 export type Vitals = z.infer<typeof vitalsSchema>;
+export type TimeSlot = z.infer<typeof timeSlotSchema>;
+export type AppointmentType = z.infer<typeof appointmentTypeSchema>;
+export type AppointmentPriority = z.infer<typeof appointmentPrioritySchema>;
+
+// Enterprise scheduling utility types
+export interface AppointmentConflict {
+  appointmentId: string;
+  conflictType: 'time_overlap' | 'doctor_unavailable' | 'double_booking' | 'time_off';
+  conflictingAppointmentId?: string;
+  message: string;
+  severity: 'warning' | 'error';
+}
+
+export interface AvailabilitySlot {
+  doctorId: string;
+  doctorName: string;
+  startTime: Date;
+  endTime: Date;
+  isAvailable: boolean;
+  conflictReason?: string;
+}
+
+export interface TimeRange {
+  start: Date;
+  end: Date;
+}
+
+export interface DoctorScheduleInfo {
+  doctorId: string;
+  doctorName: string;
+  specialization?: string;
+  isAvailable: boolean;
+  currentStatus: 'available' | 'busy' | 'off' | 'break';
+  nextAvailableSlot?: Date;
+  appointments: Appointment[];
+  timeOff: DoctorTimeOff[];
+}
+
+// Color coding configuration for appointment types
+export const APPOINTMENT_TYPE_COLORS: Record<AppointmentType, string> = {
+  consultation: '#3B82F6', // Blue
+  cleaning: '#10B981', // Green
+  checkup: '#06B6D4', // Cyan
+  surgery: '#EF4444', // Red
+  emergency: '#DC2626', // Dark Red
+  followup: '#8B5CF6', // Purple
+  routine: '#6B7280', // Gray
+  orthodontics: '#F59E0B', // Orange
+  cosmetic: '#EC4899', // Pink
+  extraction: '#DC2626', // Dark Red
+  root_canal: '#B91C1C', // Darker Red
+  filling: '#059669', // Dark Green
+};
+
+// Priority colors
+export const APPOINTMENT_PRIORITY_COLORS: Record<AppointmentPriority, string> = {
+  low: '#6B7280', // Gray
+  normal: '#3B82F6', // Blue
+  high: '#F59E0B', // Orange
+  urgent: '#EF4444', // Red
+};
