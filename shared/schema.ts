@@ -26,6 +26,14 @@ export const communicationPreferencesSchema = z.object({
   whatsapp: z.boolean(),
 });
 
+export const consentFormsSchema = z.object({
+  treatmentConsent: z.boolean().default(false),
+  privacyPolicyConsent: z.boolean().default(false),
+  dataProcessingConsent: z.boolean().default(false),
+  marketingConsent: z.boolean().default(false),
+  consentDate: z.date().optional(),
+});
+
 export const patientSchema = z.object({
   id: z.string(),
   firstName: z.string(),
@@ -43,6 +51,7 @@ export const patientSchema = z.object({
   allergies: z.string().optional(),
   profilePhotoUrl: z.string().url().optional(),
   communicationPreferences: communicationPreferencesSchema.optional(),
+  consentForms: consentFormsSchema.optional(),
   createdAt: z.date(),
 });
 
@@ -107,12 +116,32 @@ export const prescriptionSchema = z.object({
   createdAt: z.date(),
 });
 
+// Photo Upload Tracking Schema
+export const photoUploadSchema = z.object({
+  id: z.string(),
+  patientId: z.string(),
+  tempPath: z.string(),
+  finalPath: z.string().optional(),
+  originalName: z.string(),
+  size: z.number(),
+  contentType: z.string(),
+  uploadId: z.string(),
+  uploadedBy: z.string(),
+  uploadedAt: z.date(),
+  confirmedBy: z.string().optional(),
+  confirmedAt: z.date().optional(),
+  cleanedUpBy: z.string().optional(),
+  cleanedUpAt: z.date().optional(),
+  status: z.enum(["uploaded", "confirmed", "cleaned_up", "failed"]),
+  metadata: z.record(z.any()).optional(),
+});
+
 // Firestore Audit Logs Collection Schema
 export const auditLogSchema = z.object({
   id: z.string(),
   userId: z.string(),
-  action: z.enum(["create", "update", "delete"]),
-  entityType: z.enum(["user", "patient", "appointment", "encounter", "prescription"]),
+  action: z.enum(["create", "update", "delete", "upload", "repath", "cleanup", "batch_cleanup"]),
+  entityType: z.enum(["user", "patient", "appointment", "encounter", "prescription", "patient_photo"]),
   entityId: z.string(),
   changes: z.record(z.any()).optional(), // before/after values
   createdAt: z.date(),
@@ -151,6 +180,10 @@ export const insertPrescriptionSchema = prescriptionSchema.omit({
   createdAt: true,
 });
 
+export const insertPhotoUploadSchema = photoUploadSchema.omit({
+  id: true,
+});
+
 export const insertAuditLogSchema = auditLogSchema.omit({
   id: true,
   createdAt: true,
@@ -169,9 +202,12 @@ export type Prescription = z.infer<typeof prescriptionSchema>;
 export type InsertPrescription = z.infer<typeof insertPrescriptionSchema>;
 export type AuditLog = z.infer<typeof auditLogSchema>;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
+export type PhotoUpload = z.infer<typeof photoUploadSchema>;
+export type InsertPhotoUpload = z.infer<typeof insertPhotoUploadSchema>;
 
 // Additional utility types
 export type EmergencyContact = z.infer<typeof emergencyContactSchema>;
 export type CommunicationPreferences = z.infer<typeof communicationPreferencesSchema>;
+export type ConsentForms = z.infer<typeof consentFormsSchema>;
 export type Medication = z.infer<typeof medicationSchema>;
 export type Vitals = z.infer<typeof vitalsSchema>;

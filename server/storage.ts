@@ -10,7 +10,9 @@ import {
   type Prescription,
   type InsertPrescription,
   type AuditLog,
-  type InsertAuditLog
+  type InsertAuditLog,
+  type PhotoUpload,
+  type InsertPhotoUpload
 } from "@shared/schema";
 import { db } from "./firebaseAdmin";
 import { Timestamp } from "firebase-admin/firestore";
@@ -54,6 +56,13 @@ export interface IStorage {
   // Audit Logs
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
   getAuditLogs(): Promise<AuditLog[]>;
+  
+  // Photo Upload Tracking
+  trackPhotoUpload(upload: InsertPhotoUpload): Promise<PhotoUpload>;
+  updatePhotoUpload(tempPath: string, updates: Partial<PhotoUpload>): Promise<PhotoUpload | undefined>;
+  cleanupPhotoUpload(uploadId: string, cleanedUpBy: string): Promise<void>;
+  getPhotoUploadsForPatient(patientId: string): Promise<PhotoUpload[]>;
+  cleanupStalePhotoUploads(maxAgeHours: number, cleanedUpBy: string): Promise<PhotoUpload[]>;
 }
 
 // Utility functions for Firestore timestamp conversion
@@ -121,7 +130,8 @@ export class FirestoreStorage implements IStorage {
     APPOINTMENTS: 'appointments',
     ENCOUNTERS: 'encounters',
     PRESCRIPTIONS: 'prescriptions',
-    AUDIT_LOGS: 'audit_logs'
+    AUDIT_LOGS: 'audit_logs',
+    PHOTO_UPLOADS: 'photo_uploads'
   };
 
   constructor() {
@@ -807,6 +817,127 @@ export class FirestoreStorage implements IStorage {
       throw handleFirestoreError('getAuditLogs', error);
     }
   }
+
+  // Photo Upload Tracking
+  async trackPhotoUpload(insertUpload: InsertPhotoUpload): Promise<PhotoUpload> {
+    try {
+      const docRef = db.collection(this.COLLECTIONS.PHOTO_UPLOADS).doc();
+      const upload: PhotoUpload = {
+        id: docRef.id,
+        ...insertUpload,
+      };
+      
+      await docRef.set(convertDatesToTimestamp(upload));
+      return upload;
+    } catch (error) {
+      throw handleFirestoreError('trackPhotoUpload', error);
+    }
+  }
+
+  async updatePhotoUpload(tempPath: string, updates: Partial<PhotoUpload>): Promise<PhotoUpload | undefined> {
+    try {
+      // Find document by tempPath
+      const querySnapshot = await db.collection(this.COLLECTIONS.PHOTO_UPLOADS)
+        .where('tempPath', '==', tempPath)
+        .where('status', 'in', ['uploaded', 'confirmed']) // Don't update cleaned up uploads
+        .limit(1)
+        .get();
+      
+      if (querySnapshot.empty) {
+        console.warn(`No photo upload found with tempPath: ${tempPath}`);
+        return undefined;
+      }
+      
+      const docRef = querySnapshot.docs[0].ref;
+      await docRef.update(convertDatesToTimestamp(updates));
+      
+      // Fetch and return the updated document
+      const updatedDoc = await docRef.get();
+      if (!updatedDoc.exists) return undefined;
+      
+      const data = updatedDoc.data();
+      return convertTimestampsToDate({ id: updatedDoc.id, ...data }) as PhotoUpload;
+    } catch (error) {
+      throw handleFirestoreError('updatePhotoUpload', error);
+    }
+  }
+
+  async cleanupPhotoUpload(uploadId: string, cleanedUpBy: string): Promise<void> {
+    try {
+      // Find document by uploadId
+      const querySnapshot = await db.collection(this.COLLECTIONS.PHOTO_UPLOADS)
+        .where('uploadId', '==', uploadId)
+        .limit(1)
+        .get();
+      
+      if (querySnapshot.empty) {
+        console.warn(`No photo upload found with uploadId: ${uploadId}`);
+        return;
+      }
+      
+      const docRef = querySnapshot.docs[0].ref;
+      await docRef.update(convertDatesToTimestamp({
+        status: 'cleaned_up',
+        cleanedUpBy,
+        cleanedUpAt: new Date()
+      }));
+    } catch (error) {
+      throw handleFirestoreError('cleanupPhotoUpload', error);
+    }
+  }
+
+  async getPhotoUploadsForPatient(patientId: string): Promise<PhotoUpload[]> {
+    try {
+      const querySnapshot = await db.collection(this.COLLECTIONS.PHOTO_UPLOADS)
+        .where('patientId', '==', patientId)
+        .orderBy('uploadedAt', 'desc')
+        .get();
+      
+      return querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return convertTimestampsToDate({ id: doc.id, ...data }) as PhotoUpload;
+      });
+    } catch (error) {
+      throw handleFirestoreError('getPhotoUploadsForPatient', error);
+    }
+  }
+
+  async cleanupStalePhotoUploads(maxAgeHours: number, cleanedUpBy: string): Promise<PhotoUpload[]> {
+    try {
+      const maxAge = new Date(Date.now() - (maxAgeHours * 60 * 60 * 1000));
+      
+      // Find stale uploads that are not yet confirmed or cleaned up
+      const querySnapshot = await db.collection(this.COLLECTIONS.PHOTO_UPLOADS)
+        .where('uploadedAt', '<', convertDatesToTimestamp(maxAge))
+        .where('status', 'in', ['uploaded', 'failed'])
+        .get();
+      
+      const batch = db.batch();
+      const cleanedUploads: PhotoUpload[] = [];
+      
+      querySnapshot.docs.forEach(doc => {
+        const data = doc.data();
+        const upload = convertTimestampsToDate({ id: doc.id, ...data }) as PhotoUpload;
+        cleanedUploads.push(upload);
+        
+        // Mark as cleaned up
+        batch.update(doc.ref, convertDatesToTimestamp({
+          status: 'cleaned_up',
+          cleanedUpBy,
+          cleanedUpAt: new Date()
+        }));
+      });
+      
+      if (cleanedUploads.length > 0) {
+        await batch.commit();
+        console.log(`Cleaned up ${cleanedUploads.length} stale photo uploads`);
+      }
+      
+      return cleanedUploads;
+    } catch (error) {
+      throw handleFirestoreError('cleanupStalePhotoUploads', error);
+    }
+  }
 }
 
 // In-memory storage implementation for development
@@ -817,6 +948,7 @@ export class MemoryStorage implements IStorage {
   private encounters = new Map<string, Encounter>();
   private prescriptions = new Map<string, Prescription>();
   private auditLogs = new Map<string, AuditLog>();
+  private photoUploads = new Map<string, PhotoUpload>();
   private idCounter = 1;
 
   constructor() {
@@ -1239,6 +1371,94 @@ export class MemoryStorage implements IStorage {
   async getAuditLogs(): Promise<AuditLog[]> {
     return Array.from(this.auditLogs.values()).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
+
+  // Photo Upload Tracking
+  async trackPhotoUpload(insertUpload: InsertPhotoUpload): Promise<PhotoUpload> {
+    const upload: PhotoUpload = {
+      id: this.generateId(),
+      ...insertUpload,
+    };
+    this.photoUploads.set(upload.id, upload);
+    return upload;
+  }
+
+  async updatePhotoUpload(tempPath: string, updates: Partial<PhotoUpload>): Promise<PhotoUpload | undefined> {
+    // Find upload by tempPath
+    let foundUpload: PhotoUpload | undefined;
+    for (const upload of Array.from(this.photoUploads.values())) {
+      if (upload.tempPath === tempPath && ['uploaded', 'confirmed'].includes(upload.status)) {
+        foundUpload = upload;
+        break;
+      }
+    }
+    
+    if (!foundUpload) {
+      console.warn(`No photo upload found with tempPath: ${tempPath}`);
+      return undefined;
+    }
+    
+    const updatedUpload = { ...foundUpload, ...updates };
+    this.photoUploads.set(foundUpload.id, updatedUpload);
+    return updatedUpload;
+  }
+
+  async cleanupPhotoUpload(uploadId: string, cleanedUpBy: string): Promise<void> {
+    // Find upload by uploadId
+    let foundUpload: PhotoUpload | undefined;
+    for (const upload of Array.from(this.photoUploads.values())) {
+      if (upload.uploadId === uploadId) {
+        foundUpload = upload;
+        break;
+      }
+    }
+    
+    if (!foundUpload) {
+      console.warn(`No photo upload found with uploadId: ${uploadId}`);
+      return;
+    }
+    
+    const updatedUpload: PhotoUpload = {
+      ...foundUpload,
+      status: 'cleaned_up',
+      cleanedUpBy,
+      cleanedUpAt: new Date()
+    };
+    this.photoUploads.set(foundUpload.id, updatedUpload);
+  }
+
+  async getPhotoUploadsForPatient(patientId: string): Promise<PhotoUpload[]> {
+    const results: PhotoUpload[] = [];
+    for (const upload of Array.from(this.photoUploads.values())) {
+      if (upload.patientId === patientId) {
+        results.push(upload);
+      }
+    }
+    return results.sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime());
+  }
+
+  async cleanupStalePhotoUploads(maxAgeHours: number, cleanedUpBy: string): Promise<PhotoUpload[]> {
+    const maxAge = new Date(Date.now() - (maxAgeHours * 60 * 60 * 1000));
+    const cleanedUploads: PhotoUpload[] = [];
+    
+    for (const upload of Array.from(this.photoUploads.values())) {
+      if (upload.uploadedAt < maxAge && ['uploaded', 'failed'].includes(upload.status)) {
+        const updatedUpload: PhotoUpload = {
+          ...upload,
+          status: 'cleaned_up',
+          cleanedUpBy,
+          cleanedUpAt: new Date()
+        };
+        this.photoUploads.set(upload.id, updatedUpload);
+        cleanedUploads.push(updatedUpload);
+      }
+    }
+    
+    if (cleanedUploads.length > 0) {
+      console.log(`Cleaned up ${cleanedUploads.length} stale photo uploads`);
+    }
+    
+    return cleanedUploads;
+  }
 }
 
 // Hybrid storage class that attempts Firestore but falls back to Memory storage
@@ -1507,6 +1727,42 @@ class HybridStorage implements IStorage {
     return this.executeWithFallback(
       () => this.firestoreStorage.getAuditLogs(),
       () => this.memoryStorage!.getAuditLogs()
+    );
+  }
+
+  // Photo Upload Tracking
+  async trackPhotoUpload(upload: InsertPhotoUpload): Promise<PhotoUpload> {
+    return this.executeWithFallback(
+      () => this.firestoreStorage.trackPhotoUpload(upload),
+      () => this.memoryStorage!.trackPhotoUpload(upload)
+    );
+  }
+
+  async updatePhotoUpload(tempPath: string, updates: Partial<PhotoUpload>): Promise<PhotoUpload | undefined> {
+    return this.executeWithFallback(
+      () => this.firestoreStorage.updatePhotoUpload(tempPath, updates),
+      () => this.memoryStorage!.updatePhotoUpload(tempPath, updates)
+    );
+  }
+
+  async cleanupPhotoUpload(uploadId: string, cleanedUpBy: string): Promise<void> {
+    return this.executeWithFallback(
+      () => this.firestoreStorage.cleanupPhotoUpload(uploadId, cleanedUpBy),
+      () => this.memoryStorage!.cleanupPhotoUpload(uploadId, cleanedUpBy)
+    );
+  }
+
+  async getPhotoUploadsForPatient(patientId: string): Promise<PhotoUpload[]> {
+    return this.executeWithFallback(
+      () => this.firestoreStorage.getPhotoUploadsForPatient(patientId),
+      () => this.memoryStorage!.getPhotoUploadsForPatient(patientId)
+    );
+  }
+
+  async cleanupStalePhotoUploads(maxAgeHours: number, cleanedUpBy: string): Promise<PhotoUpload[]> {
+    return this.executeWithFallback(
+      () => this.firestoreStorage.cleanupStalePhotoUploads(maxAgeHours, cleanedUpBy),
+      () => this.memoryStorage!.cleanupStalePhotoUploads(maxAgeHours, cleanedUpBy)
     );
   }
 }
