@@ -30,6 +30,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     next();
   };
 
+  // Get user by Firebase UID (for authentication)
+  app.get("/api/users/by-firebase-uid/:uid", async (req: Request, res: Response) => {
+    try {
+      const user = await storage.getUserByFirebaseUid(req.params.uid);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      res.json(user);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch user" });
+    }
+  });
+
   // Users routes
   app.get("/api/users", requireAuth, async (req: Request, res: Response) => {
     try {

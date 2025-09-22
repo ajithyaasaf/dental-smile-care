@@ -19,25 +19,55 @@ export function useAuth() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        // In real implementation, fetch user data from backend using Firebase UID
-        // For now, mock the user data
-        const mockUser: User = {
-          id: "user-1",
-          firebaseUid: firebaseUser.uid,
-          email: firebaseUser.email || "",
-          emailLower: (firebaseUser.email || "").toLowerCase(),
-          name: firebaseUser.displayName || "User",
-          role: "admin",
-          specialization: undefined,
-          isActive: true,
-          createdAt: new Date(),
-        };
-        
-        setAuthState({
-          user: mockUser,
-          firebaseUser,
-          loading: false,
-        });
+        try {
+          // Fetch user data from backend using Firebase UID
+          const response = await fetch(`/api/users/by-firebase-uid/${firebaseUser.uid}`);
+          if (response.ok) {
+            const backendUser = await response.json();
+            setAuthState({
+              user: backendUser,
+              firebaseUser,
+              loading: false,
+            });
+          } else {
+            // Fallback: Create mock user based on email
+            let role: "admin" | "doctor" | "staff" = "admin";
+            let name = firebaseUser.displayName || "User";
+            
+            if (firebaseUser.email?.includes("dr.")) {
+              role = "doctor";
+              name = firebaseUser.email.includes("smith") ? "Dr. Smith" : "Dr. Johnson";
+            } else if (firebaseUser.email?.includes("staff")) {
+              role = "staff";
+              name = "Staff Member";
+            }
+            
+            const mockUser: User = {
+              id: "user-1",
+              firebaseUid: firebaseUser.uid,
+              email: firebaseUser.email || "",
+              emailLower: (firebaseUser.email || "").toLowerCase(),
+              name,
+              role,
+              specialization: role === "doctor" ? "General Dentistry" : undefined,
+              isActive: true,
+              createdAt: new Date(),
+            };
+            
+            setAuthState({
+              user: mockUser,
+              firebaseUser,
+              loading: false,
+            });
+          }
+        } catch (error) {
+          console.error("Error fetching user data:", error);
+          setAuthState({
+            user: null,
+            firebaseUser: null,
+            loading: false,
+          });
+        }
       } else {
         setAuthState({
           user: null,

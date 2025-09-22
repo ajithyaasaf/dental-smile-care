@@ -121,12 +121,19 @@ export default function Login() {
 
           <div className="mt-4 p-4 bg-muted rounded-lg">
             <p className="text-sm text-muted-foreground text-center">
-              Demo Credentials:
+              Test Credentials:
             </p>
-            <p className="text-sm text-center">
-              <strong>Email:</strong> admin@smilecare.com<br />
-              <strong>Password:</strong> password123
-            </p>
+            <div className="text-sm text-center space-y-2">
+              <div>
+                <strong>Admin:</strong> admin@smilecare.com / password123
+              </div>
+              <div>
+                <strong>Doctor:</strong> dr.smith@smilecare.com / password123
+              </div>
+              <div>
+                <strong>Staff:</strong> staff@smilecare.com / password123
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
