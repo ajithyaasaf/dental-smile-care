@@ -1,0 +1,342 @@
+# Dental Clinic Management System (DCMS)
+
+## Product Overview
+A comprehensive dental clinic management application designed to handle 40+ patients daily (scalable to hundreds) with a modern UI/UX, secure handling of medical records, and cost-effective notification systems utilizing free tiers wherever possible.
+
+## Technical Architecture
+
+### Stack Overview
+- **Frontend**: React + TypeScript
+- **Backend**: Express.js + TypeScript
+- **Database**: Firestore
+- **File Storage**: Firebase Storage
+- **Authentication**: Firebase Authentication (JWT, role claims)
+- **Deployment**: 
+  - Frontend: Vercel
+  - Backend: Render/Railway
+  - DB/Storage/Auth: Firebase
+- **Notifications**:
+  - Email: Nodemailer + Gmail API / SendGrid free tier
+  - WhatsApp: Free wa.me link scheme for MVP
+- **Observability**: Firebase Performance + Sentry (free tier)
+
+### Data Structure (Firestore Collections)
+```
+/users             // Admins, doctors, staff with role claims
+/patients          // Patient profiles, consent, history
+/appointments      // Scheduled visits
+/encounters        // Consultation details
+/prescriptions     // Stored PDFs, delivery logs
+/notifications     // Reminder logs
+/audit_logs        // Immutable trail of actions
+```
+
+### Project Architecture
+```
+/client            // React app
+  /components      // Reusable UI components
+  /pages           // Route-based page components
+  /hooks           // Custom React hooks
+  /services        // API clients and business logic
+  /styles          // Global styles and theme
+  /types           // TypeScript interfaces/types
+/server            // Express backend
+  /routes          // API route definitions
+  /controllers     // Route handlers
+  /services        // Business logic
+  /models          // Data models
+  /middleware      // Express middleware
+  /utils           // Helper functions
+/docs              // Documentation
+/tests             // Unit and integration tests
+/shared            // Types/interfaces shared between client/server
+```
+
+## UI/UX Design Specifications
+
+### Design Language
+- **Style**: Modern minimalism with strong information hierarchy
+- **Primary color**: #732a90 (deep purple)
+- **Secondary palette**:
+  - Soft teal (#4ECDC4) for success states
+  - Light gray (#F7F7F7) for backgrounds
+  - Charcoal (#333333) for text
+- **Typography**: 
+  - Headings: Poppins (sans-serif)
+  - Body text: Inter (sans-serif)
+- **Spacing system**: 4px base unit (4px, 8px, 16px, 24px, 32px, 48px)
+- **Border radius**: 8px for cards, 4px for buttons
+- **Shadow system**: Subtle elevation with light shadows
+
+### Responsive Design
+- Mobile/tablet-first approach
+- Fluid layouts that adapt to desktop
+- Touch-friendly interface elements (min 44px touch targets)
+- Collapsible side navigation on smaller screens
+
+### Key User Interfaces
+
+#### 1. Authentication & Onboarding
+- Login screen with role-based routing
+- Password reset flow
+- First-time setup wizard
+
+#### 2. Admin Dashboard
+- **Header**:
+  - Clinic logo & name
+  - Date picker
+  - Quick search
+  - Notifications
+  - User menu
+- **Main content**:
+  - Daily patient queue card
+  - Appointment calendar view
+  - Doctor availability status
+  - Quick registration button
+- **Patient queue management**:
+  - List view with status indicators
+  - Drag-and-drop interface for doctor assignment
+  - Color coding for appointment types
+  - Filter and sort options
+
+#### 3. Patient Registration
+- Multi-step form with progress indicator:
+  1. Personal details
+  2. Contact information
+  3. Medical history
+  4. Consent forms
+  5. Review & confirm
+- Upload area for profile photo
+- WhatsApp/Email consent toggles
+- Search functionality for existing patients
+
+#### 4. Doctor Dashboard
+- **Header**:
+  - Current patient indicator
+  - Next patient preview
+  - Time indicators
+- **Patient queue**:
+  - Assigned patients list
+  - Estimated consultation times
+  - Patient preview cards
+- **Quick actions**:
+  - Start consultation
+  - View history
+  - Create prescription
+
+#### 5. Consultation Interface
+- **Split view layout**:
+  - Left: Patient history, previous encounters
+  - Right: Current consultation workspace
+- **Encounter workspace**:
+  - Template-based notes system
+  - Common conditions quick-select
+  - File upload for scans/photos
+  - Voice notes option (future)
+
+#### 6. Prescription Builder
+- **Structured form**:
+  - Medication search with autocomplete
+  - Dosage calculator
+  - Duration selector
+  - Special instructions field
+- **Preview panel**:
+  - Real-time PDF preview
+  - Edit/finalize toggle
+- **Delivery panel**:
+  - Email status (automatic)
+  - "Send to WhatsApp" button with status
+  - Delivery confirmation log
+
+#### 7. Follow-up Management
+- Calendar view of scheduled follow-ups
+- Reminder creation interface
+- Bulk actions for similar cases
+- Automated vs. manual toggle options
+
+## Core Workflows
+
+### 1. Patient Registration Flow
+1. Admin initiates new patient registration
+2. System presents multi-step form
+3. Admin collects patient details:
+   - Demographics
+   - Contact information
+   - Medical history
+   - Communication preferences
+   - Consent forms
+4. Optional profile photo upload
+5. System validates and stores record in Firestore
+6. Patient receives welcome email with portal instructions
+
+### 2. Appointment Scheduling
+1. Admin searches for existing patient or creates new
+2. Selects available time slot in calendar view
+3. Assigns appointment type and doctor
+4. System confirms and creates appointment record
+5. Notification sent to patient (email automatically, WhatsApp manually)
+
+### 3. Daily Patient Queue Management
+1. Admin views daily appointments
+2. Marks patient arrivals
+3. Updates wait times
+4. Assigns patients to available doctors
+5. Monitors overall clinic flow
+
+### 4. Doctor Consultation Workflow
+1. Doctor views assigned patient queue
+2. Selects patient to begin consultation
+3. Reviews medical history and previous encounters
+4. Creates new encounter record with:
+   - Clinical notes
+   - Diagnoses
+   - Treatment plans
+   - Uploaded scans/photos
+5. System saves encounter to patient record
+6. Doctor can initiate prescription if needed
+
+### 5. Prescription Workflow
+1. Doctor creates prescription within encounter
+2. Selects medications, dosages, and instructions
+3. Finalizes prescription
+4. System generates PDF and saves to Firebase Storage
+5. System automatically emails PDF link to patient
+6. System displays "Send to WhatsApp" button
+7. When clicked, generates wa.me link with prefilled message
+8. Opens WhatsApp (Web/Desktop/Mobile) with message + PDF link
+9. Staff sends message to patient and/or pharmacy
+10. System records delivery events in audit log
+
+### 6. Follow-up Management
+1. Doctor or admin creates follow-up reminder
+2. System schedules email reminder automatically
+3. For WhatsApp reminders:
+   - System generates reminder in admin queue
+   - Staff uses "Send to WhatsApp" button
+   - Records delivery in system
+4. Automated reminder sent via email before appointment
+
+### 7. WhatsApp Delivery Methods
+**MVP Approach (Free)**:
+1. Prescription PDF generated and stored
+2. System creates signed link with expiration
+3. Email automatically sent to patient
+4. "Send to WhatsApp" button appears in UI
+5. When clicked, generates wa.me link with prefilled message
+6. Staff completes sending via WhatsApp Web/Desktop/Mobile
+7. Delivery logged in system
+
+**Optional Manual Approach (Free)**:
+1. All PDFs accessible via admin dashboard
+2. Staff downloads or shares directly from dashboard
+3. Manually forwards to patient/pharmacy via clinic's WhatsApp Business account
+4. Marks as "sent" in system
+
+**Future Upgrade Path (Paid)**:
+1. Integration with WhatsApp Cloud API or Twilio
+2. Template message approval process
+3. Patient opt-in collection
+4. Fully automated sending
+
+## Development Roadmap
+
+### MVP Phase (Weeks 1-8)
+**Week 1-2: Setup & Authentication**
+- Project scaffolding
+- Firebase configuration
+- Authentication system
+- Role-based access control
+
+**Week 3-4: Patient & Admin Modules**
+- Patient registration
+- Admin dashboard
+- Patient search and management
+- Appointment scheduling
+
+**Week 5-6: Doctor & Encounter Modules**
+- Doctor dashboard
+- Patient queue management
+- Encounter creation interface
+- Medical history viewer
+
+**Week 7-8: Prescription & Notification System**
+- Prescription builder
+- PDF generation service
+- Email notification system
+- WhatsApp manual sharing via wa.me links
+- Basic audit logging
+
+### Phase 2 (Weeks 9-12)
+**Week 9-10: Pharmacy Integration**
+- Pharmacy role implementation
+- Pharmacy dashboard
+- Prescription verification system
+
+**Week 11-12: Follow-up System**
+- Reminder scheduler
+- Follow-up management interface
+- Enhanced reporting
+- Extended audit logging
+
+### Phase 3 (Future Upgrade)
+- WhatsApp API integration
+- Advanced analytics dashboard
+- Inventory management
+- Billing integration
+- Patient portal
+
+## Security Considerations
+- JWT-based authentication with short expiry
+- Role-based access control
+- Firestore security rules for data access
+- HIPAA-aligned data handling practices
+- Encryption of sensitive data at rest
+- Secure PDF generation with signed URLs
+- Comprehensive audit logging
+- Session timeout controls
+- Content Security Policy implementation
+
+## Testing Strategy
+- Unit tests for core services
+- Integration tests for API endpoints
+- UI component testing with React Testing Library
+- End-to-end testing of critical workflows
+- Security testing and vulnerability scanning
+- Performance testing for database queries
+
+## Acceptance Criteria
+1. **Patient Management**
+   - Patients can be registered with complete profiles
+   - Medical history can be recorded and accessed
+   - Patient search works efficiently even with large datasets
+
+2. **Appointment System**
+   - Appointments can be scheduled, modified, and canceled
+   - Daily queue shows accurate wait times
+   - Patients can be assigned to doctors
+
+3. **Doctor Workflow**
+   - Doctors can view assigned patients
+   - Encounter records can be created and saved
+   - Medical history is accessible during consultations
+
+4. **Prescription System**
+   - Prescriptions can be created with medication details
+   - PDF generation works correctly
+   - Email delivery is automatic
+   - WhatsApp sharing via wa.me link works with one click
+
+5. **Notification & Follow-up**
+   - Email notifications send successfully
+   - WhatsApp manual sharing process is straightforward
+   - Follow-up reminders are scheduled correctly
+
+6. **Security & Compliance**
+   - Authentication works for all user roles
+   - Unauthorized access attempts are blocked
+   - Audit logs capture all system activities
+
+7. **Performance**
+   - System handles 40+ patients daily without performance degradation
+   - Page loads complete in under 2 seconds
+   - Database queries are optimized

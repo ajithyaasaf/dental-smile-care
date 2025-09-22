@@ -11,23 +11,27 @@ import {
 import { z } from "zod";
 
 // Extend Express Request type to include user
-interface AuthenticatedRequest extends Request {
-  user: {
-    id: string;
-    role: string;
-  };
+declare global {
+  namespace Express {
+    interface Request {
+      user?: {
+        id: string;
+        role: string;
+      };
+    }
+  }
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware placeholder (in real implementation, verify Firebase token)
-  const requireAuth = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  const requireAuth = (req: Request, res: Response, next: NextFunction) => {
     // TODO: Verify Firebase JWT token
     req.user = { id: 'user-id', role: 'admin' }; // Mock user for now
     next();
   };
 
   // Users routes
-  app.get("/api/users", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.get("/api/users", requireAuth, async (req: Request, res: Response) => {
     try {
       const users = await storage.getUsers();
       res.json(users);
@@ -36,7 +40,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/users", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.post("/api/users", requireAuth, async (req: Request, res: Response) => {
     try {
       const userData = insertUserSchema.parse(req.body);
       const user = await storage.createUser(userData);
@@ -58,7 +62,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Patients routes
-  app.get("/api/patients", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.get("/api/patients", requireAuth, async (req: Request, res: Response) => {
     try {
       const { search } = req.query;
       const patients = search 
@@ -70,7 +74,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/patients/:id", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.get("/api/patients/:id", requireAuth, async (req: Request, res: Response) => {
     try {
       const patient = await storage.getPatient(req.params.id);
       if (!patient) {
@@ -82,7 +86,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/patients", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.post("/api/patients", requireAuth, async (req: Request, res: Response) => {
     try {
       const patientData = insertPatientSchema.parse(req.body);
       const patient = await storage.createPatient(patientData);
@@ -103,7 +107,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/patients/:id", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.patch("/api/patients/:id", requireAuth, async (req: Request, res: Response) => {
     try {
       const updates = req.body;
       const patient = await storage.updatePatient(req.params.id, updates);
@@ -124,7 +128,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Appointments routes
-  app.get("/api/appointments", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.get("/api/appointments", requireAuth, async (req: Request, res: Response) => {
     try {
       const { date, doctorId } = req.query;
       let appointments;
@@ -156,7 +160,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/appointments", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.post("/api/appointments", requireAuth, async (req: Request, res: Response) => {
     try {
       const appointmentData = insertAppointmentSchema.parse(req.body);
       const appointment = await storage.createAppointment(appointmentData);
@@ -177,7 +181,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/appointments/:id", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.patch("/api/appointments/:id", requireAuth, async (req: Request, res: Response) => {
     try {
       const updates = req.body;
       const appointment = await storage.updateAppointment(req.params.id, updates);
@@ -198,7 +202,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Encounters routes
-  app.get("/api/encounters/:patientId", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.get("/api/encounters/:patientId", requireAuth, async (req: Request, res: Response) => {
     try {
       const encounters = await storage.getEncountersByPatient(req.params.patientId);
       res.json(encounters);
@@ -207,7 +211,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/encounters", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.post("/api/encounters", requireAuth, async (req: Request, res: Response) => {
     try {
       const encounterData = insertEncounterSchema.parse(req.body);
       const encounter = await storage.createEncounter(encounterData);
@@ -229,7 +233,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Prescriptions routes
-  app.get("/api/prescriptions", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.get("/api/prescriptions", requireAuth, async (req: Request, res: Response) => {
     try {
       const { patientId } = req.query;
       const prescriptions = patientId 
@@ -255,7 +259,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/prescriptions", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.post("/api/prescriptions", requireAuth, async (req: Request, res: Response) => {
     try {
       const prescriptionData = insertPrescriptionSchema.parse(req.body);
       const prescription = await storage.createPrescription(prescriptionData);
@@ -276,7 +280,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/prescriptions/:id", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.patch("/api/prescriptions/:id", requireAuth, async (req: Request, res: Response) => {
     try {
       const updates = req.body;
       const prescription = await storage.updatePrescription(req.params.id, updates);
@@ -297,7 +301,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Dashboard stats
-  app.get("/api/dashboard/stats", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.get("/api/dashboard/stats", requireAuth, async (req: Request, res: Response) => {
     try {
       const today = new Date().toISOString().split('T')[0];
       const todayAppointments = await storage.getAppointmentsByDate(today);
@@ -316,7 +320,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // WhatsApp integration endpoint
-  app.post("/api/prescriptions/:id/whatsapp", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.post("/api/prescriptions/:id/whatsapp", requireAuth, async (req: Request, res: Response) => {
     try {
       const prescription = await storage.getPrescription(req.params.id);
       if (!prescription) {
