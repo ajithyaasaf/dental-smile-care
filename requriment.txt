@@ -56,11 +56,6 @@ A comprehensive dental clinic management application designed to handle 40+ pati
 
 ### Design Language
 - **Style**: Modern minimalism with strong information hierarchy
-- **Primary color**: #732a90 (deep purple)
-- **Secondary palette**:
-  - Soft teal (#4ECDC4) for success states
-  - Light gray (#F7F7F7) for backgrounds
-  - Charcoal (#333333) for text
 - **Typography**: 
   - Headings: Poppins (sans-serif)
   - Body text: Inter (sans-serif)
